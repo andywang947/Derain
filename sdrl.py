@@ -25,7 +25,7 @@ parser = argparse.ArgumentParser()
 dataset = 'test'
 parser.add_argument("--rainy_data_path", type=str, default="./dataset/"+dataset+"/", help='Path to rainy data')
 parser.add_argument("--sdr_data_path", type=str, default="./dataset/"+dataset+"/sdr/", help='Path to sdr data')
-parser.add_argument("--result_path", type=str, default="./dataset/"+dataset+"/result_beseline/", help='Path to save result')
+parser.add_argument("--result_path", type=str, default="./dataset/"+dataset+"/result/", help='Path to save result')
 parser.add_argument("--backbone", type=str, default="Unet", help= "select backbone to be used in SDRL")
 parser.add_argument("--epoch", type=int, default=100)
 parser.add_argument("--mt", action="store_true", help="Use mean teacher student model")
@@ -90,7 +90,7 @@ for batch in data_loader:
         epoch_timer.tic()    
         
         if opt.backbone == "Unet":
-            model = UNet()
+            model = UNet(is_target=True)
             aux_model = UNet(input_channels=1)
 
         elif opt.backbone == "ResNet":
@@ -108,17 +108,24 @@ for batch in data_loader:
         model = model.to(device)
         optimizer = Adam(model.parameters(), lr=0.001)
 
+        aux_model = aux_model.to(device)
+        aux_optimizer = Adam(aux_model.parameters(), lr=0.001)
+
+
         inner_batch_size = 1
         rainy_images = rainy_images.to(device)
         model.train()
+        aux_model.train()
         SDR_loader = SDR_dataloader(os.path.join(sdr_path, name[0][:-4]), batch_size=inner_batch_size)
         for j in tqdm(range(epochs)):
             for k, inner_batch in enumerate(SDR_loader):
-                sdr_images = inner_batch
+                sdr_images, input_edge_map, sdr_edge_map = inner_batch
                 sdr_images = F.pad(sdr_images, (0,padw,0,padh), 'reflect')
 
 
                 sdr_images = sdr_images.to(device)
+                input_edge_map = input_edge_map.to(device)
+                sdr_edge_map = sdr_edge_map.to(device)
                 if mt :
                     images = torch.cat([rainy_images for _ in range(len(sdr_images))],0)
                     student_output = model(images)
@@ -127,8 +134,20 @@ for batch in data_loader:
                     loss = loss_function(student_output, sdr_images) + consistency_loss
                 else :
                     images = torch.cat([rainy_images for _ in range(len(sdr_images))],0)
-                    net_output = model(images)
+
+                    aux_net_output, aux_encoder_feature = aux_model(input_edge_map)
+
+                    aux_loss = loss_function(aux_net_output, sdr_edge_map)
+                    aux_optimizer.zero_grad()
+                    aux_loss.backward()
+                    aux_optimizer.step()
+                    for k in aux_encoder_feature:
+                        aux_encoder_feature[k] = aux_encoder_feature[k].detach()
+
+                    net_output, encoder_feature = model(images, aux_encoder_feature)
+
                     loss = loss_function(net_output, sdr_images)
+
                 optimizer.zero_grad()
                 loss.backward()
                 optimizer.step()
@@ -141,7 +160,10 @@ for batch in data_loader:
             print("SDR image doesn't exist !")
             continue
         model.eval()
-        net_output = model(rainy_images)
+        net_output, _ = model(rainy_images)
+
+        aux_model.eval()
+        aux_net_output, _ = aux_model(input_edge_map)
 
         time = epoch_timer.toc()
         print("Time: ", time)
@@ -149,6 +171,11 @@ for batch in data_loader:
         net_output = net_output[:,:,:h,:w]
         denoised = np.clip(net_output[0].permute(1,2,0).detach().cpu().numpy(), 0, 1)
         plt.imsave(os.path.join(save_path,name[0]), denoised)
+
+        denoised_edge = np.clip(aux_net_output[0].squeeze(0).detach().cpu().numpy(), 0, 1)
+        plt.imsave(os.path.join(save_path,"edge" + name[0]), denoised_edge, cmap="gray")
+
+        # exit()
 
         if mt is True :
             teacher_model.eval()

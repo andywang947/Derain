@@ -80,7 +80,7 @@ class PCBActiv(nn.Module):
 
 
 class UNet(nn.Module):
-    def __init__(self, layer_size=4, input_channels=3, upsampling_mode='nearest'):
+    def __init__(self, layer_size=4, input_channels=3, upsampling_mode='nearest', is_target=False):
         super().__init__()
         self.freeze_enc_bn = False
         self.upsampling_mode = upsampling_mode
@@ -95,8 +95,11 @@ class UNet(nn.Module):
         self.dec_2 = PCBActiv(128 + 64, 64, activ='leaky')
         self.dec_1 = PCBActiv(64 + input_channels, input_channels,
                               bn=False, activ=None, conv_bias=True)
+        self.is_target = is_target
+        if is_target:
+            self.alpha = nn.Parameter(torch.tensor(0.5))  # 初始加權比例 0
 
-    def forward(self, input):
+    def forward(self, input, aux_features=None):
         h_dict = {}  # for the output of enc_N
         h_dict['h_0']= input
         h_key_prev = 'h_0'
@@ -106,11 +109,11 @@ class UNet(nn.Module):
             h_dict[h_key] = getattr(self, l_key)(
                 h_dict[h_key_prev])
             h_key_prev = h_key
+            if i == 4 and aux_features is not None:
+                h_dict[h_key] = (1 - self.alpha) * h_dict[h_key] + self.alpha * aux_features[h_key]
 
         h_key = 'h_{:d}'.format(self.layer_size)
         h = h_dict[h_key]
-
-        
 
         for i in range(self.layer_size, 0, -1):
             enc_h_key = 'h_{:d}'.format(i - 1)
@@ -119,7 +122,7 @@ class UNet(nn.Module):
             h = torch.cat([h, h_dict[enc_h_key]], dim=1)
             h= getattr(self, dec_l_key)(h)
 
-        return h
+        return h, h_dict
 
     def train(self, mode=True):
         

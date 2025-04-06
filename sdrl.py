@@ -22,10 +22,10 @@ import copy
 
 torch.manual_seed(3)
 parser = argparse.ArgumentParser()
-dataset = 'Rain12'
+dataset = 'test'
 parser.add_argument("--rainy_data_path", type=str, default="./dataset/"+dataset+"/", help='Path to rainy data')
 parser.add_argument("--sdr_data_path", type=str, default="./dataset/"+dataset+"/sdr/", help='Path to sdr data')
-parser.add_argument("--result_path", type=str, default="./dataset/"+dataset+"/result_origin_retrain/", help='Path to save result')
+parser.add_argument("--result_path", type=str, default="./dataset/"+dataset+"/result_beseline/", help='Path to save result')
 parser.add_argument("--backbone", type=str, default="Unet", help= "select backbone to be used in SDRL")
 parser.add_argument("--epoch", type=int, default=100)
 parser.add_argument("--mt", action="store_true", help="Use mean teacher student model")
@@ -37,7 +37,7 @@ data_path = opt.rainy_data_path
 save_path = opt.result_path
 sdr_path = opt.sdr_data_path
 epochs = opt.epoch
-mt = opt.mt # Teacher student model
+mt = opt.mt
 ema_decay = opt.ema_decay
 
 if mt :
@@ -71,28 +71,13 @@ for batch in data_loader:
         # train 
         rainy_images, __ , ___, name = batch
 
-        # print(rainy_images.shape)
-
-        # To solve the UNet dimension problem.
-
         h,w = rainy_images.shape[2], rainy_images.shape[3]
         factor = 16
-        # print(h,w)
-        # if h%factor!=0 or w%factor!=0 :
-        #     print("the size 有問題！") 
-        # else:
-        #     print("size 沒問題！")
 
         H,W = ((h+factor)//factor)*factor, ((w+factor)//factor)*factor
         padh = H-h if h%factor!=0 else 0
         padw = W-w if w%factor!=0 else 0
         rainy_images = F.pad(rainy_images, (0,padw,0,padh), 'reflect')
-
-        # img = np.clip(rainy_images[0].permute(1,2,0).detach().cpu().numpy(), 0, 1)
-        # plt.imsave(os.path.join(save_path,"teacher" ,name[0]), img)
-        # exit()
-        # new_h,new_w = rainy_images.shape[2], rainy_images.shape[3]
-        # print(new_h,new_w)
 
         img_save_path = os.path.join(save_path,name[0])
         print(img_save_path)
@@ -106,12 +91,12 @@ for batch in data_loader:
         
         if opt.backbone == "Unet":
             model = UNet()
+            aux_model = UNet(input_channels=1)
+
         elif opt.backbone == "ResNet":
             model = ResNet()
         elif opt.backbone == "DnCNN":
             model = DnCNN()
-        elif opt.backbone == "Restormer":
-            model = Restormer()
         
         if mt :
             teacher_model = copy.deepcopy(model)  # 或用 load_state_dict
@@ -130,9 +115,7 @@ for batch in data_loader:
         for j in tqdm(range(epochs)):
             for k, inner_batch in enumerate(SDR_loader):
                 sdr_images = inner_batch
-
                 sdr_images = F.pad(sdr_images, (0,padw,0,padh), 'reflect')
-                # continue
 
 
                 sdr_images = sdr_images.to(device)
@@ -159,8 +142,6 @@ for batch in data_loader:
             continue
         model.eval()
         net_output = model(rainy_images)
-
-        # net_output = net_output[:,:,:h,:w]
 
         time = epoch_timer.toc()
         print("Time: ", time)

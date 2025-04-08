@@ -97,20 +97,23 @@ class UNet(nn.Module):
                               bn=False, activ=None, conv_bias=True)
         self.is_target = is_target
         if is_target:
-            self.alpha = nn.Parameter(torch.tensor(0.5))  # 初始加權比例 0
+            self.alpha = nn.Parameter(torch.tensor(0.0))  # 初始加權比例 0
 
-    def forward(self, input, aux_features=None):
+    def forward(self, input, aux_model=None):
         h_dict = {}  # for the output of enc_N
         h_dict['h_0']= input
         h_key_prev = 'h_0'
         for i in range(1, self.layer_size + 1):
             l_key = 'enc_{:d}'.format(i)
             h_key = 'h_{:d}'.format(i)
-            h_dict[h_key] = getattr(self, l_key)(
-                h_dict[h_key_prev])
+            if i == 4 and aux_model is not None:
+                target_feature = getattr(self, l_key)(h_dict[h_key_prev])
+                aux_feature = getattr(aux_model, l_key)(h_dict[h_key_prev])
+                h_dict[h_key] = target_feature + self.alpha * aux_feature
+            else :
+                h_dict[h_key] = getattr(self, l_key)(h_dict[h_key_prev])
+     
             h_key_prev = h_key
-            if i == 4 and aux_features is not None:
-                h_dict[h_key] = (1 - self.alpha) * h_dict[h_key] + self.alpha * aux_features[h_key]
 
         h_key = 'h_{:d}'.format(self.layer_size)
         h = h_dict[h_key]

@@ -3,26 +3,20 @@ import numpy as np
 import os
 import matplotlib.pyplot as plt
 import argparse
-
 from PIL import Image as Image
 from torch.nn import MSELoss
 from torch.optim import Adam
 import torch.nn.functional as F
-
 from tqdm import tqdm
-
 from utils import Timer
 from network import UNet, ResNet, DnCNN
-
-
-# from restormer import Restormer
 from data import SDR_dataloader, train_dataloader
 import copy
 
 
 torch.manual_seed(3)
 parser = argparse.ArgumentParser()
-dataset = 'test'
+dataset = 'Rain100L'
 parser.add_argument("--rainy_data_path", type=str, default="./dataset/"+dataset+"/", help='Path to rainy data')
 parser.add_argument("--sdr_data_path", type=str, default="./dataset/"+dataset+"/sdr/", help='Path to sdr data')
 parser.add_argument("--result_path", type=str, default="./dataset/"+dataset+"/result/", help='Path to save result')
@@ -144,7 +138,7 @@ for batch in data_loader:
                     for k in aux_encoder_feature:
                         aux_encoder_feature[k] = aux_encoder_feature[k].detach()
 
-                    net_output, encoder_feature = model(images, aux_encoder_feature)
+                    net_output, encoder_feature = model(images, aux_model=aux_model)
 
                     loss = loss_function(net_output, sdr_images)
 
@@ -160,7 +154,7 @@ for batch in data_loader:
             print("SDR image doesn't exist !")
             continue
         model.eval()
-        net_output, _ = model(rainy_images)
+        net_output, _ = model(rainy_images, aux_model=aux_model)
 
         aux_model.eval()
         aux_net_output, _ = aux_model(input_edge_map)
@@ -173,7 +167,7 @@ for batch in data_loader:
         plt.imsave(os.path.join(save_path,name[0]), denoised)
 
         denoised_edge = np.clip(aux_net_output[0].squeeze(0).detach().cpu().numpy(), 0, 1)
-        plt.imsave(os.path.join(save_path,"edge" + name[0]), denoised_edge, cmap="gray")
+        # plt.imsave(os.path.join(save_path,"edge" + name[0]), denoised_edge, cmap="gray")
 
         # exit()
 

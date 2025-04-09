@@ -99,6 +99,11 @@ class UNet(nn.Module):
         if is_target:
             self.alpha = nn.Parameter(torch.tensor(0.0))  # 初始加權比例 0
 
+        if is_target:
+            self.alphas = nn.ParameterList([
+                nn.Parameter(torch.tensor(0.0)) for _ in range(self.layer_size - 1)
+            ])
+
     def forward(self, input, aux_model=None):
         h_dict = {}  # for the output of enc_N
         h_dict['h_0']= input
@@ -106,13 +111,20 @@ class UNet(nn.Module):
         for i in range(1, self.layer_size + 1):
             l_key = 'enc_{:d}'.format(i)
             h_key = 'h_{:d}'.format(i)
-            if i == 4 and aux_model is not None:
+            # if i == 4 and aux_model is not None:
+            #     target_feature = getattr(self, l_key)(h_dict[h_key_prev])
+            #     aux_feature = getattr(aux_model, l_key)(h_dict[h_key_prev])
+            #     h_dict[h_key] = target_feature + self.alpha * aux_feature
+            # else :
+            #     h_dict[h_key] = getattr(self, l_key)(h_dict[h_key_prev])
+
+            if aux_model is not None and i != 1:
+                alpha = self.alphas[i - 2]  # 因為 i 從 2 開始混合，所以用 i-2
                 target_feature = getattr(self, l_key)(h_dict[h_key_prev])
                 aux_feature = getattr(aux_model, l_key)(h_dict[h_key_prev])
-                h_dict[h_key] = target_feature + self.alpha * aux_feature
+                h_dict[h_key] = target_feature + alpha * aux_feature
             else :
                 h_dict[h_key] = getattr(self, l_key)(h_dict[h_key_prev])
-     
             h_key_prev = h_key
 
         h_key = 'h_{:d}'.format(self.layer_size)
